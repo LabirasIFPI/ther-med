@@ -50,8 +50,10 @@ pico_enable_stdio_usb(thermed-pico 1)
 # Add the standard library to the build
 target_link_libraries(thermed-pico
         pico_stdlib
+        hardware_i2c
         hardware_pio
-        hardware_adc
+        # hardware_adc
+        hardware_pwm
         ws2812b_animation
         )
 
@@ -63,9 +65,12 @@ target_sources(thermed-pico PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/libs/RP2040-WS2812B-Animation/ws2812b_animation.c
 )
 
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/libs/pico-ssd1306)
+
 # Add the standard include files to the build
 target_include_directories(thermed-pico PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}/libs/pico-ssd1306
         ${CMAKE_CURRENT_LIST_DIR}/libs/RP2040-WS2812B-Animation/inc
         ${CMAKE_CURRENT_LIST_DIR}/libs/RP2040-WS2812B-Animation/inc/CP0-EU
         ${CMAKE_CURRENT_LIST_DIR}/libs/RP2040-WS2812B-Animation/inc/utf8-iterator/source
@@ -75,6 +80,7 @@ target_include_directories(thermed-pico PRIVATE
 # Add any user requested libraries
 target_link_libraries(thermed-pico 
         pico_cyw43_arch_lwip_threadsafe_background
+        pico-ssd1306
         )
 
 pico_add_extra_outputs(thermed-pico)
