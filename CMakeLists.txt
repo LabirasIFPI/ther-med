@@ -37,6 +37,9 @@ pico_sdk_init()
 
 add_executable(thermed-pico thermed-pico.c )
 
+# Incluir a biblioteca ws2812b
+add_subdirectory(libs/RP2040-WS2812B-Animation)
+
 pico_set_program_name(thermed-pico "thermed-pico")
 pico_set_program_version(thermed-pico "0.1")
 
@@ -46,12 +49,28 @@ pico_enable_stdio_usb(thermed-pico 1)
 
 # Add the standard library to the build
 target_link_libraries(thermed-pico
-        pico_stdlib)
+        pico_stdlib
+        hardware_pio
+        hardware_adc
+        ws2812b_animation
+        )
+
+# Gerar o header PIO para ws2812
+pico_generate_pio_header(thermed-pico ${CMAKE_CURRENT_LIST_DIR}/libs/RP2040-WS2812B-Animation/ws2812.pio)
+
+# Adicionar os arquivos fontes do projeto da matriz de LEDs
+target_sources(thermed-pico PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/libs/RP2040-WS2812B-Animation/ws2812b_animation.c
+)
 
 # Add the standard include files to the build
 target_include_directories(thermed-pico PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}/libs/RP2040-WS2812B-Animation/inc
+        ${CMAKE_CURRENT_LIST_DIR}/libs/RP2040-WS2812B-Animation/inc/CP0-EU
+        ${CMAKE_CURRENT_LIST_DIR}/libs/RP2040-WS2812B-Animation/inc/utf8-iterator/source
 )
+
 
 # Add any user requested libraries
 target_link_libraries(thermed-pico 
@@ -60,3 +79,25 @@ target_link_libraries(thermed-pico
 
 pico_add_extra_outputs(thermed-pico)
 
+# Configuração da biblioteca ws2812b_animation
+set(TARGET_NAME "ws2812b_animation")
+
+if (NOT TARGET ${TARGET_NAME})
+    add_library(${TARGET_NAME} INTERFACE)
+
+    target_sources(${TARGET_NAME} INTERFACE
+        ${CMAKE_CURRENT_LIST_DIR}/libs/RP2040-WS2812B-Animation/ws2812b_animation.c
+        ${CMAKE_CURRENT_LIST_DIR}/libs/RP2040-WS2812B-Animation/inc/utf8-iterator/source/utf-8.c
+    )
+
+    target_include_directories(${TARGET_NAME} INTERFACE
+        ${CMAKE_CURRENT_LIST_DIR}/libs/RP2040-WS2812B-Animation/inc
+        ${CMAKE_CURRENT_LIST_DIR}/libs/RP2040-WS2812B-Animation/inc/CP0-EU
+        ${CMAKE_CURRENT_LIST_DIR}/libs/RP2040-WS2812B-Animation/inc/utf8-iterator/source
+    )
+
+    target_link_libraries(${TARGET_NAME} INTERFACE
+        pico_stdlib
+        hardware_pio
+    )
+endif()

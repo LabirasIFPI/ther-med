@@ -1,15 +1,17 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
-#include "pico/cyw43_arch.h"
 #include "hardware/gpio.h"
+#include "ws2812b_animation.h" // Matriz de LEDs
 
+#define LED_MATRIX_PIN 7 // Definição do GPIO da matriz de LEDs RGB
+#define DHT_PIN 8  // Definição do GPIO onde o DHT22 está conectado
 
-#include <stdio.h>
-#include "pico/stdlib.h"
-#include "hardware/gpio.h"
+#define TEMP_LIMIT_MIN
+#define TEMP_LIMIT_MAX
 
-#define DHT_PIN 8  // Defina o GPIO onde o DHT11 está conectado
-
+/**
+ * Realiza a leitura do sensor de temperatura e umidade
+ */
 void dht11_read(int *temperature, int *humidity) {
     uint32_t data = 0;
     uint8_t bits[5] = {0};
@@ -49,11 +51,24 @@ void dht11_read(int *temperature, int *humidity) {
     }
 }
 
-int main() {
+/**
+ * Realiza a inicialização de todos os sensores e atuadores do projeto
+ */
+void setup(){
     stdio_init_all();
+
+    printf("Inicializando DHT11...\n");
     gpio_init(DHT_PIN);
     
-    printf("Inicializando DHT11...\n");
+    printf("Inicializando matriz de LEDs");
+    ws2812b_init(pio0, LED_MATRIX_PIN, 25);
+    ws2812b_set_global_dimming(7);
+    ws2812b_fill_all(GRB_SPRING);
+    ws2812b_render();
+}
+
+int main() {
+    setup();
 
     while (true) {
         int temperature, humidity;
