@@ -1,3 +1,5 @@
+#ifndef LED_MATRIX_FUNCS
+#define LED_MATRIX_FUNCS
 #include "ws2812b_animation.h"
 #define LED_MATRIX_PIN 7  // Definição do GPIO da matriz de LEDs RGB
 
@@ -18,3 +20,5 @@ void led_matrix_colorize(uGRB32_t color){
     ws2812b_fill_all(color);
     ws2812b_render();
 }
+
+#endif // LED_MATRIX_FUNCS

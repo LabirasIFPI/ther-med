@@ -1,36 +1,18 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/gpio.h"
-#include "hardware/pwm.h" // Biblioteca para PWM
-#include "hardware/timer.h" 
+#include "hardware/timer.h" // Temporizador para o alarme
+
+#include "utils/alarm_funcs.h"
 #include "utils/led_matrix_funcs.h" // Funcoes para controlar a matriz de LEDS
 #include "utils/display_funcs.h" // Funcoes para controlar o display OLED
 
-#define DHT_PIN 8         // Definição do GPIO onde o DHT22 está conectado
-#define BUZZER_PIN 21     // Definição do GPIO onde o buzzer passivo está conectado
+#define DHT_PIN 8                   // Definição do GPIO onde o DHT22 está conectado
+#define ALARM_PULSE_INTERVAL 500000 // Intervalo de pulsação do buzzer
 
-#define TEMP_LIMIT_MIN 0  // Limite mínimo de temperatura
-#define TEMP_LIMIT_MAX 40 // Limite máximo de temperatura
+#define TEMP_LIMIT_MIN -8  // Limite mínimo de temperatura
+#define TEMP_LIMIT_MAX 0 // Limite máximo de temperatura
 
-
-
-void buzzer_init() {
-    gpio_set_function(BUZZER_PIN, GPIO_FUNC_PWM);  // Define o pino como saída PWM
-    uint slice_num = pwm_gpio_to_slice_num(BUZZER_PIN);
-    pwm_set_wrap(slice_num, 50000);  // Define a frequência
-    pwm_set_gpio_level(BUZZER_PIN, 10000); // Define o duty cycle
-    pwm_set_enabled(slice_num, 0); // Começa desativado
-}
-
-void buzzer_on() {
-    uint slice_num = pwm_gpio_to_slice_num(BUZZER_PIN);
-    pwm_set_enabled(slice_num, 1); // Ativa o som
-}
-
-void buzzer_off() {
-    uint slice_num = pwm_gpio_to_slice_num(BUZZER_PIN);
-    pwm_set_enabled(slice_num, 0); // Desativa o som
-}
 
 /**
  * Realiza a leitura da temperatura no sensor DHT22
@@ -74,28 +56,43 @@ void dht22_read(int *temperature) {
     }
 }
 
+/**
+ * Faz o controle de alarmes com base nos valores de temperatura observados.
+ */
 void check_temperature(int *temp) {
     char temperature_buffer[30];
 
     if (*temp != -1) {
         printf("Temperatura: %d°C\n", *temp);
-        
-        if (*temp >= TEMP_LIMIT_MAX) { // Se a temperatura estiver muito alta, ativa o buzzer
-            buzzer_on();
-        } else {
-            buzzer_off();
-        }
-
-        led_matrix_colorize(GRB_GREEN);
         sprintf(temperature_buffer, "Temperatura: %d graus", *temp);
         oled_write(temperature_buffer, 0, 32);
+        
+        if (*temp >= TEMP_LIMIT_MAX || *temp <= TEMP_LIMIT_MIN) { // Se a temperatura estiver muito alta ou baixa
+            if (!alarm_active){
+                // Alarmes são disparados
+                buzzer_on();
+                alarm_active = true;
+                add_repeating_timer_us(ALARM_PULSE_INTERVAL, alarm_toggle_callback,NULL,&alarm_timer);
+            }
+            oled_write_no_clear("!!Condicoes EXTREMAS!!", 0, 44); 
+        } else {
+            buzzer_off();
+            alarm_active = false;
+            cancel_repeating_timer(&alarm_timer);
+            led_matrix_colorize(GRB_GREEN);
+        }
+
 
     } else {
+        // Em caso de erro no sensor
         printf("Erro ao ler o DHT22\n");
         led_matrix_colorize(GRB_YELLOW);
         oled_write("Erro ao ler sensor!", 0, 24);
         oled_write_no_clear("Verifique as conexoes!", 0, 36);
-        buzzer_off(); // Desliga o buzzer se houver erro
+        
+        buzzer_off(); // Desliga os alarmes se houver erro
+        alarm_active = false;
+        cancel_repeating_timer(&alarm_timer);
     }
 }
 
