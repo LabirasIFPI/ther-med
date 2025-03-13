@@ -52,7 +52,7 @@ target_link_libraries(thermed-pico
         pico_stdlib
         hardware_i2c
         hardware_pio
-        # hardware_adc
+        hardware_adc
         hardware_pwm
         ws2812b_animation
         )

@@ -2,20 +2,229 @@
 #include "pico/stdlib.h"
 #include "hardware/gpio.h"
 #include "hardware/timer.h" // Temporizador para o alarme
+#include "hardware/adc.h"   // API do conversor ADC para uso do joystick
+#include "pico/time.h"
 
 #include "utils/alarm_funcs.h"
 #include "utils/led_matrix_funcs.h" // Funcoes para controlar a matriz de LEDS
-#include "utils/display_funcs.h" // Funcoes para controlar o display OLED
+#include "utils/display_funcs.h"    // Funcoes para controlar o display OLED
 
+#define BUTTON_ENTER 5
+#define BUTTON_BACK 6
+#define JOYSTICK_X 26
+#define JOYSTICK_Y 27
+#define JOYSTICK_BTN 22
 #define DHT_PIN 8                   // Definição do GPIO onde o DHT22 está conectado
-#define ALARM_PULSE_INTERVAL 500000 // Intervalo de pulsação do buzzer
-
-#define TEMP_LIMIT_MIN -8  // Limite mínimo de temperatura
-#define TEMP_LIMIT_MAX 0 // Limite máximo de temperatura
-
+#define ALARM_PULSE_INTERVAL 500000 // Intervalo de pulsação do buzzer em microssegundos
 
 /**
- * Realiza a leitura da temperatura no sensor DHT22
+ * @brief Enumeração de estados do sistema
+ */
+typedef enum SystemState {
+    /* O sistema está em estado de monitoramento dos sensores */
+    STATE_MONITORING,
+    STATE_MENU_MAIN,
+
+    /* Página do menu para alterar o limite máximo */
+    STATE_MENU_SET_MAX,
+
+    /* Página do menu para alterar o limite mínimo */
+    STATE_MENU_SET_MIN
+} SystemState;
+
+// Variáveis globais para o sistema do menu
+SystemState current_state = STATE_MONITORING;
+int temp_max = 32;
+int temp_max_setting = 0;
+int temp_min = -8;
+int temp_min_setting = 0;
+int selected_max = 1;
+int button_enter_pressed = 0;
+int button_back_pressed = 0;
+int joystick_button_pressed = 0;
+int joystick_x_value = 0;
+int joystick_y_value = 0;
+
+// Configurações para debounce do botão
+#define DEBOUNCE_TIME 200
+uint32_t *last_button_time = 0;
+uint32_t *current_time = 0;
+
+/**
+ * @brief Inicializa os pinos para os botões e joystick
+ */
+void buttons_joystick_init() {
+    // Inicializa os pinos dos botões que vão ser usados
+    gpio_init(BUTTON_ENTER);
+    gpio_set_dir(BUTTON_ENTER, GPIO_IN);
+    gpio_pull_up(BUTTON_ENTER);
+    
+    gpio_init(BUTTON_BACK);
+    gpio_set_dir(BUTTON_BACK, GPIO_IN);
+    gpio_pull_up(BUTTON_BACK);
+    
+    gpio_init(JOYSTICK_BTN);
+    gpio_set_dir(JOYSTICK_BTN, GPIO_IN);
+    gpio_pull_up(JOYSTICK_BTN);
+    
+    // Inicializar conversor adc para o joystick
+    adc_init();
+    adc_gpio_init(JOYSTICK_X);
+    adc_gpio_init(JOYSTICK_Y);
+}
+
+/**
+ * @brief Lê os valores de cada botão, com debounce integrado
+ */
+void read_buttons(){
+    *current_time = to_ms_since_boot(get_absolute_time());
+
+    // Debounce
+    if (*current_time - *last_button_time > DEBOUNCE_TIME){
+        // Verificando estado de cada botão e atualizando-o
+        if (!gpio_get(BUTTON_ENTER) && !button_enter_pressed){
+            button_enter_pressed = 1;
+            last_button_time = current_time;
+        } else if (gpio_get(BUTTON_ENTER)){
+            button_enter_pressed = 0;
+        }
+
+        if (!gpio_get(BUTTON_BACK) && !button_back_pressed){
+            button_back_pressed = 1;
+            last_button_time = current_time;
+        } else if (gpio_get(BUTTON_ENTER)){
+            button_back_pressed = 0;
+        }
+
+        if (!gpio_get(JOYSTICK_BTN) && !joystick_button_pressed){
+            joystick_button_pressed = 1;
+            last_button_time = current_time;
+        } else if (gpio_get(BUTTON_ENTER)){
+            joystick_button_pressed = 0;
+        }
+    }
+
+    // Leitura do joystick
+    adc_select_input(0);
+    joystick_y_value = adc_read();
+    
+    adc_select_input(1);
+    joystick_x_value = adc_read();
+
+    printf("Joy X: %d Joy Y: %d\n", joystick_x_value, joystick_y_value);
+
+}
+
+void process_menu(SystemState *current_state, int *temp_max, int *temp_min){
+    // Detectando movimento do joystick
+    int joystick_up = joystick_y_value > 3000;
+    int joystick_down = joystick_y_value < 1000;
+
+    switch (*current_state){
+        case STATE_MONITORING:
+            // Troca de contexto para o menu de calibração
+            if (button_enter_pressed){
+                *current_state = STATE_MENU_MAIN;
+                button_enter_pressed = false; // resetar flag
+
+                draw_main_menu(temp_min, temp_max, selected_max);
+            }
+            break;
+
+        case STATE_MENU_MAIN:
+            // Alternando entre opções do menu
+            if (joystick_up || joystick_down){
+                selected_max = !selected_max;
+                draw_main_menu(temp_min, temp_max, selected_max);
+                sleep_ms(200); // Delay para evitar mudancas muito rapidas
+            }
+
+            if (button_enter_pressed){
+                *current_state = selected_max ? STATE_MENU_SET_MAX : STATE_MENU_SET_MIN;
+                button_enter_pressed = 0;
+
+                if (*current_state == STATE_MENU_SET_MAX){
+                    draw_set_temp_max(*temp_max);
+
+                } else {
+                    draw_set_temp_min(*temp_min);
+                }
+            }
+
+            if (button_back_pressed){
+                // Voltar ao monitoramento
+                *current_state = STATE_MONITORING;
+                button_back_pressed = 0;
+            }
+            break;
+
+        case STATE_MENU_SET_MAX:
+            // Ajustar o limite máximo de temperatura
+            if (joystick_up && temp_max_setting < 50) {  // Limite arbitrário de 50°C
+                temp_max_setting++;
+                draw_set_temp_max(temp_max_setting);
+                sleep_ms(200);
+            }
+            
+            if (joystick_down && temp_max_setting > *temp_min + 1) {
+                temp_max_setting--;
+                draw_set_temp_max(temp_max_setting);
+                sleep_ms(200);
+            }
+            
+            if (button_enter_pressed) {
+                // Confirmar e salvar a configuração
+                *temp_max = temp_max_setting;
+                *current_state = STATE_MENU_MAIN;
+                button_enter_pressed = 0;
+                draw_main_menu(temp_min, temp_max, selected_max);
+            }
+            
+            if (button_back_pressed) {
+                // Cancelar e voltar sem salvar
+                temp_max_setting = *temp_max;  // Restaurar valor original
+                *current_state = STATE_MENU_MAIN;
+                button_back_pressed = 0;
+                draw_main_menu(temp_min, temp_max, selected_max);
+            }
+            break;
+
+        case STATE_MENU_SET_MIN:
+
+            // Ajustar o limite mínimo de temperatura
+            if (joystick_up && temp_min_setting < temp_max_setting - 1) {
+                temp_min_setting++;
+                draw_set_temp_min(temp_min_setting);
+                sleep_ms(200);
+            }
+            
+            if (joystick_down && temp_min_setting > -20) {  // Limite arbitrário de -20°C
+                temp_min_setting--;
+                draw_set_temp_min(temp_min_setting);
+                sleep_ms(200);
+            }
+            
+            if (button_enter_pressed) {
+                // Confirmar e salvar a configuração
+                *temp_min = temp_min_setting;
+                *current_state = STATE_MENU_MAIN;
+                button_enter_pressed = 0;
+                draw_main_menu(temp_min, temp_max, selected_max);
+            }
+            
+            if (button_back_pressed) {
+                // Cancelar e voltar sem salvar
+                temp_min_setting = *temp_min;  // Restaurar valor original
+                *current_state = STATE_MENU_MAIN;
+                button_back_pressed = 0;
+                draw_main_menu(temp_min, temp_max, selected_max);
+            }
+            break;
+    }
+}
+
+/**
+ * @brief Realiza a leitura da temperatura no sensor DHT22
  */
 void dht22_read(int *temperature) {
     uint32_t data = 0;
@@ -57,7 +266,7 @@ void dht22_read(int *temperature) {
 }
 
 /**
- * Faz o controle de alarmes com base nos valores de temperatura observados.
+ * @brief Faz o controle de alarmes com base nos valores de temperatura observados.
  */
 void check_temperature(int *temp) {
     char temperature_buffer[30];
@@ -67,7 +276,10 @@ void check_temperature(int *temp) {
         sprintf(temperature_buffer, "Temperatura: %d graus", *temp);
         oled_write(temperature_buffer, 0, 32);
         
-        if (*temp >= TEMP_LIMIT_MAX || *temp <= TEMP_LIMIT_MIN) { // Se a temperatura estiver muito alta ou baixa
+        // Exibe também os limites configurados
+        sprintf(temperature_buffer, "Limites: %d a %d graus", temp_min, temp_max);
+        oled_write_no_clear(temperature_buffer, 0, 12);
+        if (*temp >= temp_max || *temp <= temp_min) { // Se a temperatura estiver muito alta ou baixa
             if (!alarm_active){
                 // Alarmes são disparados
                 buzzer_on();
@@ -97,7 +309,7 @@ void check_temperature(int *temp) {
 }
 
 /**
- * Realiza a inicialização dos sensores e atuadores do projeto
+ * @brief Realiza a inicialização dos sensores e atuadores do projeto
  */
 void setup() {
     stdio_init_all();
@@ -116,18 +328,32 @@ void setup() {
         printf("Falha ao inicializar display!\n");
         printf("Tentando novamente...\n");
     }
-    
     oled_write("Display inicializado!", 0, 32);
+
+    printf("Inicializando botões e joystick...\n");
+    buttons_joystick_init();
+    
+    oled_write("Sistema inicializado!", 0, 24);
+    oled_write_no_clear("Monitorando...", 0, 36);
+    sleep_ms(2000); // Exibe a mensagem por 2 segundos
 }
 
 int main() {
     setup();
-    int temperature;
+    int temperature = 0;
+
 
     while (true) {
-        dht22_read(&temperature);
-        check_temperature(&temperature);
-        sleep_ms(1000);  // Aguarda 1 segundo antes da próxima leitura
+        read_buttons();
+
+        process_menu(&current_state, &temp_max, &temp_min);
+        
+        if (current_state == STATE_MONITORING){
+            dht22_read(&temperature);
+            check_temperature(&temperature);
+        }
+
+        sleep_ms(100);  // Aguarda 1 segundo antes da próxima leitura
     }
 
     return 0;
