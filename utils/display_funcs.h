@@ -71,7 +71,7 @@ void draw_main_menu_selection(int select_max) {
  * @brief Desenha o menu principal no display OLED
  */
 void draw_main_menu(int *temp_min, int *temp_max, int menu_select) {
-    oled_write("==== MENU PRINCIPAL ====", 0, 0);
+    oled_write("=== MENU PRINCIPAL ===", 0, 0);
     draw_main_menu_selection(menu_select);
     oled_write_no_clear("Atual MAX: ", 0, 44);
     char temp_buffer[10];
@@ -87,13 +87,13 @@ void draw_main_menu(int *temp_min, int *temp_max, int menu_select) {
  * @brief Tela de ajuste de temperatura máxima
  */
 void draw_set_temp_max(int temp_max_setting) {
-    oled_write("=== AJUSTE TEMP. MAX ===", 0, 0);
+    oled_write("== AJUSTE TEMP. MAX ==", 0, 0);
     oled_write_no_clear("Use joystick p/ ajustar", 0, 16);
     char temp_buffer[20];
     sprintf(temp_buffer, "Valor atual: %d C", temp_max_setting);
-    oled_write_no_clear(temp_buffer, 0, 32);
-    oled_write_no_clear("ENTER para confirmar", 0, 48);
-    oled_write_no_clear("BACK para cancelar", 0, 60);
+    oled_write_no_clear(temp_buffer, 0, 28);
+    oled_write_no_clear("ENTER para confirmar", 0, 44);
+    oled_write_no_clear("BACK para cancelar", 0, 56);
 }
 
 /**
@@ -104,7 +104,7 @@ void draw_set_temp_min(int temp_min_setting) {
     oled_write_no_clear("Use joystick p/ ajustar", 0, 16);
     char temp_buffer[20];
     sprintf(temp_buffer, "Valor atual: %d C", temp_min_setting);
-    oled_write_no_clear(temp_buffer, 0, 32);
-    oled_write_no_clear("ENTER para confirmar", 0, 48);
-    oled_write_no_clear("BACK para cancelar", 0, 60);
+    oled_write_no_clear(temp_buffer, 0, 28);
+    oled_write_no_clear("ENTER para confirmar", 0, 44);
+    oled_write_no_clear("BACK para cancelar", 0, 56);
 }

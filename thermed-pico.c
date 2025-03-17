@@ -13,7 +13,6 @@
 #define BUTTON_BACK 6
 #define JOYSTICK_X 26
 #define JOYSTICK_Y 27
-#define JOYSTICK_BTN 22
 #define DHT_PIN 8                   // Definição do GPIO onde o DHT22 está conectado
 #define ALARM_PULSE_INTERVAL 500000 // Intervalo de pulsação do buzzer em microssegundos
 
@@ -63,10 +62,6 @@ void buttons_joystick_init() {
     gpio_set_dir(BUTTON_BACK, GPIO_IN);
     gpio_pull_up(BUTTON_BACK);
     
-    gpio_init(JOYSTICK_BTN);
-    gpio_set_dir(JOYSTICK_BTN, GPIO_IN);
-    gpio_pull_up(JOYSTICK_BTN);
-    
     // Inicializar conversor adc para o joystick
     adc_init();
     adc_gpio_init(JOYSTICK_X);
@@ -92,15 +87,8 @@ void read_buttons(){
         if (!gpio_get(BUTTON_BACK) && !button_back_pressed){
             button_back_pressed = 1;
             last_button_time = current_time;
-        } else if (gpio_get(BUTTON_ENTER)){
+        } else if (gpio_get(BUTTON_BACK)){
             button_back_pressed = 0;
-        }
-
-        if (!gpio_get(JOYSTICK_BTN) && !joystick_button_pressed){
-            joystick_button_pressed = 1;
-            last_button_time = current_time;
-        } else if (gpio_get(BUTTON_ENTER)){
-            joystick_button_pressed = 0;
         }
     }
 
@@ -125,6 +113,8 @@ void process_menu(SystemState *current_state, int *temp_max, int *temp_min){
             // Troca de contexto para o menu de calibração
             if (button_enter_pressed){
                 *current_state = STATE_MENU_MAIN;
+                temp_max_setting = *temp_max;
+                temp_min_setting = *temp_min;
                 button_enter_pressed = false; // resetar flag
 
                 draw_main_menu(temp_min, temp_max, selected_max);
@@ -286,7 +276,16 @@ void check_temperature(int *temp) {
                 alarm_active = true;
                 add_repeating_timer_us(ALARM_PULSE_INTERVAL, alarm_toggle_callback,NULL,&alarm_timer);
             }
-            oled_write_no_clear("!!Condicoes EXTREMAS!!", 0, 44); 
+            
+            // Mostra qual limite foi violado, o superior ou o inferior
+            if (*temp >= temp_max) {
+                led_matrix_colorize(GRB_RED);  // Vermelho para temp alta
+                oled_write_no_clear("Temperatura ALTA!", 0, 36);
+            } else {
+                led_matrix_colorize(GRB_BLUE); // Azul para temp baixa
+                oled_write_no_clear("Temperatura BAIXA!", 0, 36);
+            }
+
         } else {
             buzzer_off();
             alarm_active = false;
