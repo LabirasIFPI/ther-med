@@ -4,10 +4,12 @@
 #include "hardware/timer.h" // Temporizador para o alarme
 #include "hardware/adc.h"   // API do conversor ADC para uso do joystick
 #include "pico/time.h"
+#include "pico/unique_id.h" // API para identificação unica do raspberry pi pico w
 
 #include "utils/alarm_funcs.h"
-#include "utils/led_matrix_funcs.h" // Funcoes para controlar a matriz de LEDS
-#include "utils/display_funcs.h"    // Funcoes para controlar o display OLED
+#include "utils/led_matrix_funcs.h"   // Funcoes para controlar a matriz de LEDS
+#include "utils/display_funcs.h"      // Funcoes para controlar o display OLED
+#include "utils/connection_manager.h" // Funcoes para gerenciar o envio de alertas via wi-fi
 
 #define BUTTON_ENTER 5
 #define BUTTON_BACK 6
@@ -22,6 +24,8 @@
 typedef enum SystemState {
     /* O sistema está em estado de monitoramento dos sensores */
     STATE_MONITORING,
+
+    /*O sistema se encontra no menu principal */
     STATE_MENU_MAIN,
 
     /* Página do menu para alterar o limite máximo */
@@ -30,6 +34,9 @@ typedef enum SystemState {
     /* Página do menu para alterar o limite mínimo */
     STATE_MENU_SET_MIN
 } SystemState;
+
+// Variável global para armazenar o identificador único do dispositivo
+char device_id[2 * PICO_UNIQUE_BOARD_ID_SIZE_BYTES + 1];
 
 // Variáveis globais para o sistema do menu
 SystemState current_state = STATE_MONITORING;
@@ -44,10 +51,28 @@ int joystick_button_pressed = 0;
 int joystick_x_value = 0;
 int joystick_y_value = 0;
 
+// Configurações de wi-fi e API
+wifi_config_t wifi_config = {
+    .ssid = "SEU_SSID",
+    .senha = "SUA_SENHA",
+    .api_host = "example.com",    // Host da API (placeholder)
+    .api_port = 80,               // Porta da API
+    .api_url = "/alarme"          // Endpoint da API
+};
+
 // Configurações para debounce do botão
 #define DEBOUNCE_TIME 200
 uint32_t *last_button_time = 0;
 uint32_t *current_time = 0;
+
+/**
+ * @brief Configura o identificador único do dispositivo ao inicializar
+ */
+void setup_device_id(){
+    pico_get_unique_board_id_string(device_id, 2 * PICO_UNIQUE_BOARD_ID_SIZE_BYTES + 1);
+
+    printf("Device ID: %s\n", device_id);
+}
 
 /**
  * @brief Inicializa os pinos para os botões e joystick
@@ -271,6 +296,8 @@ void check_temperature(int *temp) {
         oled_write_no_clear(temperature_buffer, 0, 12);
         if (*temp >= temp_max || *temp <= temp_min) { // Se a temperatura estiver muito alta ou baixa
             if (!alarm_active){
+                /*TODO: CHAMAR A FUNCAO DE ENVIAR ALERTA PARA A API, VERIFICANDO A PROCEDENCIA*/
+
                 // Alarmes são disparados
                 buzzer_on();
                 alarm_active = true;
@@ -279,10 +306,8 @@ void check_temperature(int *temp) {
             
             // Mostra qual limite foi violado, o superior ou o inferior
             if (*temp >= temp_max) {
-                led_matrix_colorize(GRB_RED);  // Vermelho para temp alta
                 oled_write_no_clear("Temperatura ALTA!", 0, 36);
             } else {
-                led_matrix_colorize(GRB_BLUE); // Azul para temp baixa
                 oled_write_no_clear("Temperatura BAIXA!", 0, 36);
             }
 
@@ -339,6 +364,7 @@ void setup() {
 
 int main() {
     setup();
+    setup_device_id();
     int temperature = 0;
 
 
@@ -352,7 +378,7 @@ int main() {
             check_temperature(&temperature);
         }
 
-        sleep_ms(100);  // Aguarda 1 segundo antes da próxima leitura
+        sleep_ms(100);
     }
 
     return 0;

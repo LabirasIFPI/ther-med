@@ -37,6 +37,9 @@ pico_sdk_init()
 
 add_executable(thermed-pico thermed-pico.c )
 
+# Incluindo biblioteca cJSON
+add_library(cJSON STATIC libs/cJSON/cJSON.c)
+
 # Incluir a biblioteca ws2812b
 add_subdirectory(libs/RP2040-WS2812B-Animation)
 
@@ -74,6 +77,7 @@ target_include_directories(thermed-pico PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/libs/RP2040-WS2812B-Animation/inc
         ${CMAKE_CURRENT_LIST_DIR}/libs/RP2040-WS2812B-Animation/inc/CP0-EU
         ${CMAKE_CURRENT_LIST_DIR}/libs/RP2040-WS2812B-Animation/inc/utf8-iterator/source
+        ${CMAKE_CURRENT_LIST_DIR}/libs/cJSON
 )
 
 
@@ -81,6 +85,7 @@ target_include_directories(thermed-pico PRIVATE
 target_link_libraries(thermed-pico 
         pico_cyw43_arch_lwip_threadsafe_background
         pico-ssd1306
+        cJSON
         )
 
 pico_add_extra_outputs(thermed-pico)
