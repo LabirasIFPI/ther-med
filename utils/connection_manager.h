@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "pico/stdlib.h"
-#include "pico/cyw43_arch.h"
+#include "pico/cyw43_arch.h"    
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
 #include "lwip/dns.h"
@@ -30,7 +30,7 @@ typedef struct {
 } tcp_connection_t;
 
 // Declaração de funções auxiliares
-static void dns_found_callback(const char *name, const ip_addr_t *ipaddr, void *callback_arg);
+// static void dns_found_callback(const char *name, const ip_addr_t *ipaddr, void *callback_arg);
 static err_t tcp_connected_callback(void *arg, struct tcp_pcb *tpcb, err_t err);
 static err_t tcp_recv_callback(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err);
 static void tcp_error_callback(void *arg, err_t err);
@@ -69,7 +69,7 @@ bool wifi_reconnect_if_needed(wifi_config_t *config) {
         
         cyw43_arch_enable_sta_mode();
         if (cyw43_arch_wifi_connect_timeout_ms(config->ssid, config->senha, 
-                                              CYW43_AUTH_WPA2_AES_PSK, 10000)) {
+                                              CYW43_AUTH_WPA2_AES_PSK, 1000)) {
             printf("Falha ao reconectar ao WiFi\n");
             return false;
         }
@@ -138,6 +138,8 @@ static err_t tcp_recv_callback(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, 
     tcp_close(tpcb);
     conn->complete = true;
     
+    printf("Fechei a conexao aqui!!\n");
+
     return ERR_OK;
 }
 
@@ -149,7 +151,7 @@ static void tcp_error_callback(void *arg, err_t err) {
 }
 
 // Callback para resolução DNS
-static void dns_found_callback(const char *name, const ip_addr_t *ipaddr, void *callback_arg) {
+static void dns_callback(const char *name, const ip_addr_t *ipaddr, void *callback_arg) {
     tcp_connection_t *conn = (tcp_connection_t*)callback_arg;
     
     if (ipaddr == NULL) {
@@ -223,12 +225,13 @@ bool send_json_to_api(wifi_config_t *config, const char *json_str) {
     
     // Tentar resolver o nome do host
     err_t err = dns_gethostbyname(config->api_host, &remote_addr, 
-                                 dns_found_callback, &conn);
+                                 dns_callback, &conn);
     
     if (err == ERR_INPROGRESS) {
         // Aguardar a resolução DNS
         while (!conn.complete) {
             cyw43_arch_poll();
+            printf("Conexão ainda nao foi completa...\n");
             sleep_ms(10);
         }
     } else if (err != ERR_OK) {
@@ -247,6 +250,7 @@ bool send_json_to_api(wifi_config_t *config, const char *json_str) {
         // Aguardar a conclusão da conexão
         while (!conn.complete) {
             cyw43_arch_poll();
+            printf("tentando conectar ainda...\n");
             sleep_ms(10);
         }
     }
@@ -256,23 +260,31 @@ bool send_json_to_api(wifi_config_t *config, const char *json_str) {
 
 // Função para enviar alerta usando cJSON
 bool enviar_alerta_json(wifi_config_t *config, const char *device_id, 
-                        float temperatura, float temp_max, float temp_min) {
+                        int temperatura, int temp_max, int temp_min) {
     // Criar objeto JSON
     cJSON *alerta = cJSON_CreateObject();
-    cJSON_AddStringToObject(alerta, "dispositivo_id", device_id);
-    cJSON_AddNumberToObject(alerta, "temperatura", temperatura);
-    cJSON_AddNumberToObject(alerta, "temp_max", temp_max);
-    cJSON_AddNumberToObject(alerta, "temp_min", temp_min);
+
+    // TODO: Ajeitar dps do teste
+    // cJSON_AddStringToObject(alerta, "dispositivo_id", device_id);
+    // cJSON_AddNumberToObject(alerta, "temperatura", temperatura);
+    // cJSON_AddNumberToObject(alerta, "temp_max", temp_max);
+    // cJSON_AddNumberToObject(alerta, "temp_min", temp_min);
     
+    cJSON_AddStringToObject(alerta, "status", "DETECTED");
+    cJSON_AddStringToObject(alerta, "sensorIdentifier", "S01");
+
+
     // Converter para string
     char *json_str = cJSON_Print(alerta);
-    
+    printf("JSON enviado: %s", json_str);
+
     // Enviar para a API
     bool resultado = send_json_to_api(config, json_str);
     
     // Limpar recursos
     cJSON_Delete(alerta);
     free(json_str);
+    free(alerta);
     
     return resultado;
 }

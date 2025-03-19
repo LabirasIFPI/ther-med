@@ -53,11 +53,11 @@ int joystick_y_value = 0;
 
 // Configurações de wi-fi e API
 wifi_config_t wifi_config = {
-    .ssid = "SEU_SSID",
-    .senha = "SUA_SENHA",
-    .api_host = "example.com",    // Host da API (placeholder)
-    .api_port = 80,               // Porta da API
-    .api_url = "/alarme"          // Endpoint da API
+    .ssid = "Cardoso",
+    .senha = "xamazintos",
+    .api_host = "192.168.173.147",    // Host da API (placeholder)
+    .api_port = 8080,               // Porta da API
+    .api_url = "/alert"          // Endpoint da API
 };
 
 // Configurações para debounce do botão
@@ -123,8 +123,6 @@ void read_buttons(){
     
     adc_select_input(1);
     joystick_x_value = adc_read();
-
-    printf("Joy X: %d Joy Y: %d\n", joystick_x_value, joystick_y_value);
 
 }
 
@@ -239,11 +237,35 @@ void process_menu(SystemState *current_state, int *temp_max, int *temp_min){
 }
 
 /**
+ * @brief Função auxiliar para aguardar um nível lógico com timeout
+ * @param[in] gpio O pino gpio associado à leitura com timeout
+ * @param[in] level O nível esperado após o timeout
+ * @param[in] timeout O tempo necessário para o timeout
+ */
+bool wait_for_level_timeout(uint gpio, int level, absolute_time_t timeout) {
+    while (gpio_get(gpio) != level) {
+        if (time_reached(timeout)) {
+            return false;
+        }
+        // Pequena pausa para evitar consumo excessivo de CPU
+        tight_loop_contents();
+    }
+    return true;
+}
+
+/**
  * @brief Realiza a leitura da temperatura no sensor DHT22
  */
 void dht22_read(int *temperature) {
     uint32_t data = 0;
-    uint8_t bits[5] = {0};
+    static uint8_t bits[5] = {0};
+    static absolute_time_t timeout;
+
+    // Resetar os bits entre leituras
+    memset(bits, 0, sizeof(bits));
+
+    // Timeout para evitar loops infinitos
+    timeout = make_timeout_time_ms(2000);
 
     // Configura o pino do sensor como saída e manda um pulso baixo
     gpio_set_dir(DHT_PIN, GPIO_OUT);
@@ -256,79 +278,118 @@ void dht22_read(int *temperature) {
     gpio_set_dir(DHT_PIN, GPIO_IN);
 
     // Espera o sensor enviar algum dado
-    while (gpio_get(DHT_PIN) == 1);
-    while (gpio_get(DHT_PIN) == 0);
-    while (gpio_get(DHT_PIN) == 1);
+    if (!wait_for_level_timeout(DHT_PIN, 0, timeout)){
+        *temperature = -1;
+        return;
+    }
+    
+    if (!wait_for_level_timeout(DHT_PIN, 1, timeout)){
+        *temperature = -1;
+        return;
+    }
+    
+    if (!wait_for_level_timeout(DHT_PIN, 0, timeout)){
+        *temperature = -1;
+        return;
+    }
 
-    // Lê 40 bits (5 bytes) de dados
+    // Lê 40 bits (5 bytes) de dados com timeout
     for (int i = 0; i < 40; i++) {
-        while (gpio_get(DHT_PIN) == 0);  // Aguarda o início do bit
-        sleep_us(28);  // Espera um pouco para diferenciar 0 de 1
+        // Aguarda o início do bit (nivel alto)
+        if (!wait_for_level_timeout(DHT_PIN, 1, timeout)){
+            *temperature = -1;
+            return;
+        }
 
-        if (gpio_get(DHT_PIN) == 1) {
+        // Medir a duracao do pulso alto para determinar se é 0 ou 1
+        absolute_time_t start = get_absolute_time();
+        
+        if (!wait_for_level_timeout(DHT_PIN, 0, timeout)){
+            *temperature = -1;
+            return;
+        }
+
+        uint32_t duration = absolute_time_diff_us(start, get_absolute_time());
+    
+        if (duration > 40) {
             bits[i / 8] |= (1 << (7 - (i % 8)));
         };
-
-        while (gpio_get(DHT_PIN) == 1);
     }
 
-    // Verifica se os dados são válidos
-    if ((bits[0] + bits[1] + bits[2] + bits[3]) == bits[4]) {
-        *temperature = bits[2];
-    } else {
-        *temperature = -1;  // Erro na leitura
+    // Verificar checksum
+    uint8_t checksum = bits[0] + bits[1] + bits[2] + bits[3];
+    if (checksum != bits[4]){
+        *temperature = -1;
+        return;
     }
+
+    *temperature = bits[2];
 }
 
 /**
  * @brief Faz o controle de alarmes com base nos valores de temperatura observados.
  */
 void check_temperature(int *temp) {
-    char temperature_buffer[30];
+    static char temperature_buffer[30];
+    static int display_updated = 0;
 
-    if (*temp != -1) {
-        printf("Temperatura: %d°C\n", *temp);
-        sprintf(temperature_buffer, "Temperatura: %d graus", *temp);
-        oled_write(temperature_buffer, 0, 32);
+    if (*temp == -1 ){
+        // Código de erro - exibir apenas se não tiver sido mostrado antes
+        if (!display_updated) {
+            led_matrix_colorize(GRB_YELLOW);
+            oled_write("Erro ao ler sensor!", 0, 24);
+            oled_write_no_clear("Verifique conexoes!", 0, 36);
+            display_updated = 1;
+        }
         
-        // Exibe também os limites configurados
-        sprintf(temperature_buffer, "Limites: %d a %d graus", temp_min, temp_max);
-        oled_write_no_clear(temperature_buffer, 0, 12);
-        if (*temp >= temp_max || *temp <= temp_min) { // Se a temperatura estiver muito alta ou baixa
-            if (!alarm_active){
-                /*TODO: CHAMAR A FUNCAO DE ENVIAR ALERTA PARA A API, VERIFICANDO A PROCEDENCIA*/
-
-                // Alarmes são disparados
-                buzzer_on();
-                alarm_active = true;
-                add_repeating_timer_us(ALARM_PULSE_INTERVAL, alarm_toggle_callback,NULL,&alarm_timer);
-            }
-            
-            // Mostra qual limite foi violado, o superior ou o inferior
-            if (*temp >= temp_max) {
-                oled_write_no_clear("Temperatura ALTA!", 0, 36);
-            } else {
-                oled_write_no_clear("Temperatura BAIXA!", 0, 36);
-            }
-
-        } else {
+        // Desligar alarmes
+        if (alarm_active) {
             buzzer_off();
             alarm_active = false;
             cancel_repeating_timer(&alarm_timer);
-            led_matrix_colorize(GRB_GREEN);
+        }
+        return;
+    }
+
+    display_updated = 0;
+
+    // printf("Temperatura: %d°C\n", *temp);
+    sprintf(temperature_buffer, "Temperatura: %d graus", *temp);
+    oled_write(temperature_buffer, 0, 32);
+    
+    // Exibe também os limites configurados
+    sprintf(temperature_buffer, "Limites: %d a %d graus", temp_min, temp_max);
+    oled_write_no_clear(temperature_buffer, 0, 12);
+
+    int temp_alarm = (*temp >= temp_max || *temp <= temp_min);
+
+    if (temp_alarm) { // Se a temperatura estiver muito alta ou baixa
+        if (!alarm_active){
+            wifi_reconnect_if_needed(&wifi_config);
+            
+            enviar_alerta_json(&wifi_config, device_id, *temp, temp_max, temp_min);
+
+            // Alarmes são disparados
+            buzzer_on();
+            alarm_active = true;
+            add_repeating_timer_us(ALARM_PULSE_INTERVAL, alarm_toggle_callback,NULL,&alarm_timer);
+            printf("Opa toaqui\n");
+        }
+        
+        // Mostra qual limite foi violado, o superior ou o inferior
+        if (*temp >= temp_max) {
+            oled_write_no_clear("Temperatura ALTA!", 0, 44);
+        } else {
+            oled_write_no_clear("Temperatura BAIXA!", 0, 44);
         }
 
-
-    } else {
-        // Em caso de erro no sensor
-        printf("Erro ao ler o DHT22\n");
-        led_matrix_colorize(GRB_YELLOW);
-        oled_write("Erro ao ler sensor!", 0, 24);
-        oled_write_no_clear("Verifique as conexoes!", 0, 36);
-        
-        buzzer_off(); // Desliga os alarmes se houver erro
+    } else if (alarm_active){
+        buzzer_off();
         alarm_active = false;
         cancel_repeating_timer(&alarm_timer);
+        led_matrix_colorize(GRB_GREEN);
+    } else{
+        led_matrix_colorize(GRB_GREEN);
     }
 }
 
@@ -359,7 +420,9 @@ void setup() {
     
     oled_write("Sistema inicializado!", 0, 24);
     oled_write_no_clear("Monitorando...", 0, 36);
-    sleep_ms(2000); // Exibe a mensagem por 2 segundos
+
+    wifi_init(&wifi_config);
+    sleep_ms(1000); // Exibe a mensagem por 2 segundos
 }
 
 int main() {

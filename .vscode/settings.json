@@ -39,6 +39,8 @@
     "files.associations": {
         "gpio.h": "c",
         "led_matrix_funcs.h": "c",
-        "alarm_funcs.h": "c"
+        "alarm_funcs.h": "c",
+        "dns.h": "c",
+        "pbuf.h": "c"
     }
 }
