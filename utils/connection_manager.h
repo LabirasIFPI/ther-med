@@ -30,12 +30,14 @@ typedef struct {
 } tcp_connection_t;
 
 // Declaração de funções auxiliares
-// static void dns_found_callback(const char *name, const ip_addr_t *ipaddr, void *callback_arg);
 static err_t tcp_connected_callback(void *arg, struct tcp_pcb *tpcb, err_t err);
 static err_t tcp_recv_callback(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err);
 static void tcp_error_callback(void *arg, err_t err);
 
-// Função para inicializar o WiFi
+/**
+ * @brief Função para inicializar o WiFi
+ * @param[in] *config Ponteiro para uma estrutura que guarda configurações de rede wifi
+ */
 bool wifi_init(wifi_config_t *config) {
     if (cyw43_arch_init()) {
         printf("Falha ao inicializar o WiFi\n");
@@ -57,19 +59,24 @@ bool wifi_init(wifi_config_t *config) {
     return true;
 }
 
-// Função para verificar se o WiFi está conectado
+/**
+ * @brief Função para verificar se o WiFi está conectado
+ */
 bool wifi_is_connected() {
     return cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP;
 }
 
-// Função para tentar reconectar o WiFi se estiver desconectado
+/**
+ * @brief Função para tentar reconectar o WiFi se estiver desconectado 
+ * @param[in] *config Ponteiro para estrutura de dados que guarda informações de wifi
+ */
 bool wifi_reconnect_if_needed(wifi_config_t *config) {
     if (!wifi_is_connected()) {
         printf("WiFi desconectado. Tentando reconectar...\n");
         
         cyw43_arch_enable_sta_mode();
         if (cyw43_arch_wifi_connect_timeout_ms(config->ssid, config->senha, 
-                                              CYW43_AUTH_WPA2_AES_PSK, 1000)) {
+                                              CYW43_AUTH_WPA2_AES_PSK, 5000)) {
             printf("Falha ao reconectar ao WiFi\n");
             return false;
         }
@@ -174,7 +181,11 @@ static void dns_callback(const char *name, const ip_addr_t *ipaddr, void *callba
     }
 }
 
-// Função para enviar uma mensagem JSON para a API
+/**
+ * @brief Função para enviar uma mensagem JSON para a API
+ * @param[in] *config Ponteiro para estrutura de dados contendo configurações de wifi
+ * @param[in] *json_str Cadeia de caracteres representando um JSON
+ **/
 bool send_json_to_api(wifi_config_t *config, const char *json_str) {
     // Verificar se o WiFi está conectado
     if (!wifi_is_connected()) {
@@ -216,7 +227,6 @@ bool send_json_to_api(wifi_config_t *config, const char *json_str) {
     
     // Configurar callbacks
     tcp_arg(pcb, &conn);
-    // tcp_sent(pcb, tcp_connected_callback);  // Corrigido aqui
     tcp_recv(pcb, tcp_recv_callback);
     tcp_err(pcb, tcp_error_callback);
     
@@ -259,34 +269,29 @@ bool send_json_to_api(wifi_config_t *config, const char *json_str) {
 }
 
 // Função para enviar alerta usando cJSON
-bool enviar_alerta_json(wifi_config_t *config, const char *device_id, 
+bool send_alert_json(wifi_config_t *config, const char *device_id, 
                         int temperatura, int temp_max, int temp_min) {
     // Criar objeto JSON
-    cJSON *alerta = cJSON_CreateObject();
+    cJSON *alert = cJSON_CreateObject();
 
-    // TODO: Ajeitar dps do teste
-    // cJSON_AddStringToObject(alerta, "dispositivo_id", device_id);
-    // cJSON_AddNumberToObject(alerta, "temperatura", temperatura);
-    // cJSON_AddNumberToObject(alerta, "temp_max", temp_max);
-    // cJSON_AddNumberToObject(alerta, "temp_min", temp_min);
-    
-    cJSON_AddStringToObject(alerta, "status", "DETECTED");
-    cJSON_AddStringToObject(alerta, "sensorIdentifier", "S01");
+    cJSON_AddStringToObject(alert, "deviceId", device_id);
+    cJSON_AddNumberToObject(alert, "temperature", temperatura);
+    cJSON_AddNumberToObject(alert, "maxTemperature", temp_max);
+    cJSON_AddNumberToObject(alert, "minTemperature", temp_min);
 
 
     // Converter para string
-    char *json_str = cJSON_Print(alerta);
+    char *json_str = cJSON_Print(alert);
     printf("JSON enviado: %s", json_str);
 
     // Enviar para a API
-    bool resultado = send_json_to_api(config, json_str);
+    bool result = send_json_to_api(config, json_str);
     
-    // Limpar recursos
-    cJSON_Delete(alerta);
+    // Limpar recursos, evitando sobrecarga de memória
+    cJSON_Delete(alert);
     free(json_str);
-    free(alerta);
     
-    return resultado;
+    return result;
 }
 
 #endif // CONNECTION_MANAGER_H

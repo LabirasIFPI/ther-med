@@ -53,11 +53,11 @@ int joystick_y_value = 0;
 
 // Configurações de wi-fi e API
 wifi_config_t wifi_config = {
-    .ssid = "Cardoso",
-    .senha = "xamazintos",
-    .api_host = "192.168.173.147",    // Host da API (placeholder)
-    .api_port = 8080,               // Porta da API
-    .api_url = "/alert"          // Endpoint da API
+    .ssid = "virtual-NET12",                // SSID da sua rede WIFI
+    .senha = "tcs131728",            // SENHA da sua rede WIFI
+    .api_host = "192.168.0.101",      // Host da API (placeholder)
+    .api_port = 8080,                 // Porta da API
+    .api_url = "/alert"               // Endpoint da API
 };
 
 // Configurações para debounce do botão
@@ -363,12 +363,19 @@ void check_temperature(int *temp) {
 
     int temp_alarm = (*temp >= temp_max || *temp <= temp_min);
 
-    if (temp_alarm) { // Se a temperatura estiver muito alta ou baixa
+    if (temp_alarm) { // Se a temperatura estiver muito alta ou baixa dispara um alarme
         if (!alarm_active){
-            wifi_reconnect_if_needed(&wifi_config);
-            
-            enviar_alerta_json(&wifi_config, device_id, *temp, temp_max, temp_min);
 
+            // Variáveis armazenando timestamps para controlar o envio de alertas via wifi
+            static uint32_t last_wifi_attempt = 0;      // Tempo da ultima requisição de alarme on-line
+            uint32_t current_alarm_time = time_us_32(); // Tempo atual
+            
+            // Limita os alarmes para serem mandados de 10 em 10 segundos
+            if (current_alarm_time - last_wifi_attempt > 10 * 1000000){
+                last_wifi_attempt = current_alarm_time;
+                wifi_reconnect_if_needed(&wifi_config);
+                send_alert_json(&wifi_config, device_id, *temp, temp_max, temp_min);
+            }
             // Alarmes são disparados
             buzzer_on();
             alarm_active = true;
